@@ -1,160 +1,179 @@
 import WebSocket from 'ws'
 import { InstanceStatus } from '@companion-module/base'
+import { MuteDeckClient, osFromPlatform, sanitizeVersion } from '@mutedeck/plugin-client'
+
+import pkg from '../package.json' with { type: 'json' }
 
 /**
- * Source identifier sent to MuteDeck on every message. MuteDeck's WebSocket
- * server (client/api/websocketserver.cpp) drops messages from unknown sources,
- * so this must be one of its accepted plugin values: 'streamdeck-plugin' or
- * 'plugin'. The `identifier` sent with `identify` names this client in
- * MuteDeck's logs.
+ * How this module introduces itself to MuteDeck (plugin protocol v2). The id
+ * is also the usage-stats source; the name is shown in MuteDeck's approval
+ * prompt and in its list of connected plugins.
  */
-export const SOURCE = 'plugin'
-export const IDENTIFIER = 'Bitfocus Companion'
+export const CLIENT_ID = 'companion'
+export const CLIENT_NAME = 'Bitfocus Companion'
+/** `source` sent to an old MuteDeck that only speaks protocol v1. */
+export const V1_SOURCE = 'plugin'
 
-const RECONNECT_INTERVAL_MS = 3000
+const DEFAULT_PORT = 3492
 
 /**
- * Manages the WebSocket connection to the local MuteDeck application.
+ * Connection to MuteDeck through the MuteDeck plugin SDK (`MuteDeckClient`).
  *
- * MuteDeck exposes a WebSocket server (default ws://localhost:3492) that:
- *  - accepts JSON action messages ({ source, action, state?, name? }), and
- *  - pushes `update-status` messages describing the current call/mute/video/etc state.
- *
- * The class owns reconnection and forwards parsed events back to the instance.
+ * The SDK speaks protocol v2 (`ws://<host>:<port>/v2`: hello, approval prompt
+ * in MuteDeck, token) and falls back to v1 (`identify` + `source`) when the
+ * MuteDeck version is too old. It reconnects with backoff by itself. This
+ * class forwards its events to the instance.
  */
 export class MuteDeckConnection {
 	constructor(instance) {
 		this.instance = instance
-		this.ws = null
-		this.connected = false
-		this.shouldReconnect = true
-		this.reconnectTimer = null
+
+		const host = (instance.config.host || 'localhost').trim()
+		const port = Number(instance.config.port) || DEFAULT_PORT
+		this.address = `${host}:${port}`
+
+		const client = { id: CLIENT_ID, name: CLIENT_NAME, host_app: 'companion' }
+		const version = sanitizeVersion(pkg.version)
+		if (version) client.version = version
+		const os = osFromPlatform(process.platform)
+		if (os) client.os = os
+		// @companion-module/base 2.x doesn't tell a module which Companion
+		// version runs it, so `host_version` is left out.
+
+		this.client = new MuteDeckClient({
+			client,
+			role: 'controller',
+			host,
+			port,
+			v1Source: V1_SOURCE,
+			webSocketFactory: (url) => new WebSocket(url),
+			tokenStore: instance.tokenStore,
+			logger: {
+				debug: (message, ...args) => instance.log('debug', format(message, args)),
+				info: (message, ...args) => instance.log('info', format(message, args)),
+				warn: (message, ...args) => instance.log('warn', format(message, args)),
+				error: (message, ...args) => instance.log('error', format(message, args)),
+			},
+		})
+
+		this.unsubscribe = [
+			this.client.on('state', (state, previous) => this.handleState(state, previous)),
+			this.client.on('status', (status) => this.instance.onStatusUpdate(status)),
+			this.client.on('customActions', (list) => this.instance.onCustomActions(list)),
+			this.client.on('approved', () => this.instance.log('info', 'MuteDeck approved this Companion connection')),
+		]
 	}
 
-	get url() {
-		const host = (this.instance.config.host || 'localhost').trim()
-		const port = this.instance.config.port || 3492
-		return `ws://${host}:${port}`
+	/** True while actions can be sent (approved, or connected to an old MuteDeck). */
+	get isReady() {
+		return this.client.isReady
+	}
+
+	/** The SDK connection state: connecting | pending | authenticated | denied | v1 | disconnected. */
+	get state() {
+		return this.client.state
 	}
 
 	connect() {
-		this.shouldReconnect = true
-		this.clearReconnectTimer()
-
-		const url = this.url
-		this.instance.updateStatus(InstanceStatus.Connecting)
-		this.instance.log('debug', `Connecting to MuteDeck at ${url}`)
-
-		try {
-			this.ws = new WebSocket(url)
-		} catch (e) {
-			this.instance.log('error', `Failed to open WebSocket: ${e.message}`)
-			this.scheduleReconnect()
-			return
-		}
-
-		this.ws.on('open', () => this.handleOpen())
-		this.ws.on('message', (data) => this.handleMessage(data))
-		this.ws.on('close', () => this.handleClose())
-		this.ws.on('error', (err) => this.handleError(err))
+		this.instance.log('debug', `Connecting to MuteDeck at ${this.address}`)
+		this.client.connect()
 	}
 
-	handleOpen() {
-		this.connected = true
-		this.instance.updateStatus(InstanceStatus.Ok)
-		this.instance.log('info', 'Connected to MuteDeck')
-
-		// Announce ourselves (registers this client for status pushes), then
-		// ask for the list of user-defined custom actions.
-		this.send({ source: SOURCE, action: 'identify', identifier: IDENTIFIER })
-		this.requestCustomActions()
-
-		this.instance.onConnectionChange(true)
-	}
-
-	handleClose() {
-		const wasConnected = this.connected
-		this.connected = false
-		if (wasConnected) {
-			this.instance.log('info', 'Disconnected from MuteDeck')
-		}
-		this.instance.onConnectionChange(false)
-		this.instance.updateStatus(InstanceStatus.ConnectionFailure, 'Not connected to MuteDeck')
-		this.scheduleReconnect()
-	}
-
-	handleError(err) {
-		// `close` always follows and drives the reconnect, so just log here.
-		this.instance.log('debug', `MuteDeck WebSocket error: ${err?.message ?? err}`)
-	}
-
-	handleMessage(data) {
-		let msg
-		try {
-			msg = JSON.parse(data.toString())
-		} catch {
-			this.instance.log('warn', 'Received a non-JSON message from MuteDeck')
-			return
-		}
-
-		switch (msg.action) {
-			case 'update-status':
-				this.instance.onStatusUpdate(msg)
+	handleState(state, previous) {
+		const self = this.instance
+		switch (state) {
+			case 'connecting':
+				self.updateStatus(InstanceStatus.Connecting)
 				break
-			case 'list-custom-actions':
-				this.instance.onCustomActions(Array.isArray(msg.custom_actions) ? msg.custom_actions : [])
+			case 'pending':
+				self.updateStatus(InstanceStatus.Connecting, 'Waiting for approval: click Allow in MuteDeck')
 				break
-			default:
+			case 'authenticated':
+				self.updateStatus(InstanceStatus.Ok)
+				self.log('info', 'Connected to MuteDeck')
+				break
+			case 'v1':
+				self.updateStatus(InstanceStatus.Ok, 'Older MuteDeck version (no approval needed)')
+				self.log('info', 'Connected to MuteDeck (protocol v1)')
+				// A v2 MuteDeck pushes the custom actions after approval; v1 has to be asked.
+				this.requestCustomActions()
+				break
+			case 'denied':
+				self.updateStatus(
+					InstanceStatus.AuthenticationFailure,
+					'Access denied in MuteDeck. It will ask again shortly; allow Companion to connect.',
+				)
+				break
+			case 'disconnected':
+				if (previous === 'authenticated' || previous === 'v1') {
+					self.log('info', 'Disconnected from MuteDeck')
+				}
+				self.updateStatus(InstanceStatus.ConnectionFailure, 'Not connected to MuteDeck')
 				break
 		}
+		self.onConnectionChange(this.client.isReady, state)
 	}
 
-	/** Send a raw object to MuteDeck. Returns true if it was written to the socket. */
-	send(obj) {
-		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-			this.instance.log('warn', 'Cannot send to MuteDeck: not connected')
+	/**
+	 * Send a MuteDeck action through the SDK, e.g. sendAction('toggle_mute', { state: 'on' }).
+	 * Resolves true when MuteDeck accepted it (on an old MuteDeck: once it was sent).
+	 */
+	async sendAction(action, fields = {}) {
+		if (!this.client.isReady) {
+			this.instance.log('warn', `Ignored "${action}": ${notReadyReason(this.client.state)}`)
 			return false
 		}
-		this.ws.send(JSON.stringify(obj))
-		return true
-	}
-
-	/** Send a standard MuteDeck action, e.g. sendAction('toggle_mute', { state: 'on' }). */
-	sendAction(action, extra = {}) {
-		return this.send({ source: SOURCE, action, ...extra })
-	}
-
-	requestCustomActions() {
-		this.send({ source: SOURCE, action: 'list-custom-actions' })
-	}
-
-	scheduleReconnect() {
-		if (!this.shouldReconnect || this.reconnectTimer) return
-		this.reconnectTimer = setTimeout(() => {
-			this.reconnectTimer = null
-			this.connect()
-		}, RECONNECT_INTERVAL_MS)
-	}
-
-	clearReconnectTimer() {
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer)
-			this.reconnectTimer = null
+		try {
+			const response = await this.client.send(action, fields)
+			if (response.status >= 400) {
+				const reason = response.reason ?? response.message ?? ''
+				this.instance.log('warn', `MuteDeck refused "${action}" (${response.status}${reason ? ` ${reason}` : ''})`)
+				return false
+			}
+			return true
+		} catch (e) {
+			this.instance.log('warn', `"${action}" failed: ${e?.message ?? e}`)
+			return false
 		}
+	}
+
+	/** Ask MuteDeck for its custom actions; the answer arrives as a `customActions` event. */
+	requestCustomActions() {
+		if (!this.client.isReady) return
+		this.client.listCustomActions().catch((e) => {
+			this.instance.log('debug', `Could not list custom actions: ${e?.message ?? e}`)
+		})
+	}
+
+	/** Forget the stored token and instance id, and ask MuteDeck for approval again. */
+	resetPairing() {
+		return this.client.resetPairing()
 	}
 
 	destroy() {
-		this.shouldReconnect = false
-		this.clearReconnectTimer()
-		if (this.ws) {
-			try {
-				this.ws.removeAllListeners()
-				this.ws.close()
-			} catch {
-				// ignore errors while tearing down
-			}
-			this.ws = null
-		}
-		this.connected = false
+		for (const off of this.unsubscribe) off()
+		this.unsubscribe = []
+		this.client.disconnect()
+	}
+}
+
+function notReadyReason(state) {
+	if (state === 'pending') return 'waiting for approval in MuteDeck'
+	if (state === 'denied') return 'MuteDeck denied access'
+	return 'not connected to MuteDeck'
+}
+
+/** Join an SDK log message with its extra arguments. The SDK never passes tokens to its logger. */
+function format(message, args) {
+	if (args.length === 0) return message
+	return `${message} ${args.map((a) => (typeof a === 'string' ? a : safeJson(a))).join(' ')}`
+}
+
+function safeJson(value) {
+	if (value instanceof Error) return value.message
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return String(value)
 	}
 }

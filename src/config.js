@@ -32,5 +32,31 @@ export function GetConfigFields() {
 			tooltip: 'MuteDeck WebSocket port (default 3492).',
 			regex: Regex.PORT,
 		},
+		{
+			type: 'static-text',
+			id: 'pairing_info',
+			width: 12,
+			label: 'Approval',
+			value:
+				'The first time this connection reaches MuteDeck, MuteDeck asks whether to allow Bitfocus Companion. ' +
+				'Click Allow there. You can revoke access later in MuteDeck Settings; use the "Reset MuteDeck approval" action to ask again.',
+		},
+		// Hidden: written by the module when MuteDeck approves this connection.
+		{
+			type: 'textinput',
+			id: 'mutedeck_instance_id',
+			label: 'MuteDeck instance id',
+			width: 12,
+			default: '',
+			isVisibleExpression: 'false',
+		},
+		{
+			type: 'secret-text',
+			id: 'mutedeck_token',
+			label: 'MuteDeck token',
+			width: 12,
+			default: '',
+			isVisibleExpression: 'false',
+		},
 	]
 }

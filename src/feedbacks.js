@@ -10,6 +10,7 @@ const GREEN = combineRgb(0, 150, 60)
 const GREY = combineRgb(80, 80, 80)
 const DARK = combineRgb(30, 30, 30)
 const BLUE = combineRgb(45, 140, 255)
+const AMBER = combineRgb(230, 160, 0)
 
 /**
  * Build a boolean feedback that is true when a given status field equals the
@@ -157,6 +158,30 @@ export function UpdateFeedbacks(self) {
 			defaultStyle: { bgcolor: GREY, color: WHITE },
 			options: [],
 			callback: () => self.state.connected === true,
+		},
+		mutedeck_auth_state: {
+			type: 'boolean',
+			name: 'MuteDeck approval state',
+			description:
+				'True while the connection to MuteDeck is in the selected state, e.g. waiting for you to click Allow in MuteDeck.',
+			defaultStyle: { bgcolor: AMBER, color: BLACK },
+			options: [
+				{
+					type: 'dropdown',
+					id: 'which',
+					label: 'When state is',
+					default: 'pending',
+					choices: [
+						{ id: 'pending', label: 'Waiting for approval in MuteDeck' },
+						{ id: 'denied', label: 'Denied by MuteDeck' },
+						{ id: 'authenticated', label: 'Approved' },
+						{ id: 'v1', label: 'Older MuteDeck (no approval needed)' },
+						{ id: 'connecting', label: 'Connecting' },
+						{ id: 'disconnected', label: 'Offline' },
+					],
+				},
+			],
+			callback: (feedback) => self.state.auth === feedback.options.which,
 		},
 	})
 }

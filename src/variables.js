@@ -1,4 +1,4 @@
-import { StateValue, muteLabel, onOffLabel, callLabel } from './state.js'
+import { AUTH_STATE_LABELS, StateValue, muteLabel, onOffLabel, callLabel } from './state.js'
 
 /**
  * Declare the variables this module exposes. Values are pushed separately via
@@ -8,6 +8,10 @@ export function UpdateVariableDefinitions(self) {
 	self.setVariableDefinitions({
 		connected: { name: 'Connected to MuteDeck (true/false)' },
 		connected_label: { name: 'Connection label (Connected / Offline)' },
+		auth_state: {
+			name: 'MuteDeck approval state (connecting/pending/authenticated/denied/v1/disconnected)',
+		},
+		auth_state_label: { name: 'MuteDeck approval label (Approved / Waiting for approval / Denied / ...)' },
 
 		mute_status: { name: 'Microphone state (active/inactive/disabled)' },
 		video_status: { name: 'Camera state (active/inactive/disabled)' },
@@ -30,6 +34,8 @@ export function UpdateVariableValues(self) {
 	self.setVariableValues({
 		connected: s.connected ? 'true' : 'false',
 		connected_label: s.connected ? 'Connected' : 'Offline',
+		auth_state: s.auth || 'disconnected',
+		auth_state_label: AUTH_STATE_LABELS[s.auth] ?? AUTH_STATE_LABELS.disconnected,
 
 		mute_status: s.mute || StateValue.UNKNOWN,
 		video_status: s.video || StateValue.UNKNOWN,

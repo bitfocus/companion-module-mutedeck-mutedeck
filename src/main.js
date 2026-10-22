@@ -13,6 +13,12 @@ import { STATUS_FIELDS, emptyStatus } from './state.js'
  * @typedef {Object} ModuleConfig
  * @property {string} host
  * @property {string} port
+ * @property {string} [mutedeck_instance_id] Hidden: this connection's MuteDeck instance id (not secret).
+ */
+
+/**
+ * @typedef {Object} ModuleSecrets
+ * @property {string} [mutedeck_token] Hidden: the token MuteDeck issued when the user approved this connection.
  */
 
 class MuteDeckInstance extends InstanceBase {
@@ -20,16 +26,34 @@ class MuteDeckInstance extends InstanceBase {
 		super(internal)
 
 		/** Current MuteDeck state, mirrored from `update-status` messages. */
-		this.state = { connected: false, ...emptyStatus() }
+		this.state = { connected: false, auth: 'disconnected', ...emptyStatus() }
 		/** Custom actions discovered from MuteDeck, used to populate the action dropdown. */
 		this.customActions = []
 		/** @type {MuteDeckConnection | null} */
 		this.connection = null
+		/** @type {ModuleSecrets} */
+		this.secrets = {}
+
+		/**
+		 * Where the SDK keeps the MuteDeck token and instance id: the token in
+		 * Companion's secrets store (its value is never sent to the web UI), the
+		 * instance id in the connection config. Both are hidden config fields.
+		 * @type {import('@mutedeck/plugin-client').TokenStore}
+		 */
+		this.tokenStore = {
+			load: async () => ({
+				token: this.secrets?.mutedeck_token || undefined,
+				instanceId: this.config?.mutedeck_instance_id || undefined,
+			}),
+			save: async (data) => this.saveCredentials(data),
+			clear: async () => this.saveCredentials({}),
+		}
 	}
 
-	async init(config) {
+	async init(config, _isFirstInit, secrets) {
 		this.config = config
-		this.state = { connected: false, ...emptyStatus() }
+		this.secrets = secrets ?? {}
+		this.state = { connected: false, auth: 'disconnected', ...emptyStatus() }
 
 		this.updateActions()
 		this.updateFeedbacks()
@@ -47,12 +71,50 @@ class MuteDeckInstance extends InstanceBase {
 		this.connection = null
 	}
 
-	async configUpdated(config) {
+	async configUpdated(config, secrets) {
+		const previous = this.config ?? {}
+		const instanceId = previous.mutedeck_instance_id
+		const token = this.secrets?.mutedeck_token
 		this.config = config
-		// Reconnect using the new host/port.
-		this.connection?.destroy()
-		this.connection = new MuteDeckConnection(this)
-		this.connection.connect()
+		this.secrets = secrets ?? {}
+
+		// The credentials are hidden fields; keep them should a save from the
+		// web UI come back without them.
+		if ((instanceId && !config.mutedeck_instance_id) || (token && !this.secrets.mutedeck_token)) {
+			this.saveCredentials({
+				instanceId: config.mutedeck_instance_id || instanceId,
+				token: this.secrets.mutedeck_token || token,
+			})
+		}
+
+		// Reconnect only when the address changed: saving the credentials
+		// must not tear down the connection that just stored them.
+		if (previous.host !== config.host || String(previous.port) !== String(config.port) || !this.connection) {
+			this.connection?.destroy()
+			this.connection = new MuteDeckConnection(this)
+			this.connection.connect()
+		}
+	}
+
+	/**
+	 * Persist what the SDK's token store hands us. Only the parts that changed
+	 * are saved; the token goes to the secrets store.
+	 * @param {{ token?: string, instanceId?: string }} data
+	 */
+	saveCredentials({ token, instanceId }) {
+		let newConfig
+		let newSecrets
+		if ((this.config?.mutedeck_instance_id || undefined) !== instanceId) {
+			newConfig = { ...this.config, mutedeck_instance_id: instanceId ?? '' }
+			this.config = newConfig
+		}
+		if ((this.secrets?.mutedeck_token || undefined) !== token) {
+			newSecrets = { ...this.secrets, mutedeck_token: token ?? '' }
+			this.secrets = newSecrets
+		}
+		if (newConfig || newSecrets) {
+			this.saveConfig(newConfig, newSecrets)
+		}
 	}
 
 	getConfigFields() {
@@ -77,9 +139,13 @@ class MuteDeckInstance extends InstanceBase {
 
 	// --- Callbacks from the MuteDeck connection ---
 
-	/** Called when the WebSocket connects or disconnects. */
-	onConnectionChange(connected) {
+	/**
+	 * Called on every SDK connection state change. `connected` is true while
+	 * actions can be sent (approved by MuteDeck, or an old MuteDeck).
+	 */
+	onConnectionChange(connected, auth) {
 		this.state.connected = connected
+		this.state.auth = auth
 		if (!connected) {
 			// Clear the per-capability states so feedbacks/variables reflect "unknown".
 			this.state = { ...this.state, ...emptyStatus() }

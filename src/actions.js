@@ -19,10 +19,13 @@ function stateOption(onLabel, offLabel) {
 export function UpdateActions(self) {
 	// Always read the connection at press time: it does not exist yet while
 	// the module is starting up, and is replaced after a config change.
-	const send = (action, extra) => {
-		if (!self.connection?.sendAction(action, extra)) {
+	// Every action goes through the SDK, which speaks v2 or falls back to v1.
+	const send = async (action, extra) => {
+		if (!self.connection) {
 			self.log('warn', `Ignored "${action}": not connected to MuteDeck`)
+			return
 		}
+		await self.connection.sendAction(action, extra)
 	}
 
 	// Choices for the custom-action picker, discovered live from MuteDeck.
@@ -36,42 +39,42 @@ export function UpdateActions(self) {
 			name: 'Microphone: mute / unmute',
 			options: [stateOption('Mute', 'Unmute')],
 			callback: async (event) => {
-				send('toggle_mute', { state: event.options.state })
+				await send('toggle_mute', { state: event.options.state })
 			},
 		},
 		toggle_video: {
 			name: 'Camera: start / stop',
 			options: [stateOption('Turn on', 'Turn off')],
 			callback: async (event) => {
-				send('toggle_video', { state: event.options.state })
+				await send('toggle_video', { state: event.options.state })
 			},
 		},
 		toggle_share: {
 			name: 'Screen share: start / stop',
 			options: [stateOption('Start sharing', 'Stop sharing')],
 			callback: async (event) => {
-				send('toggle_share', { state: event.options.state })
+				await send('toggle_share', { state: event.options.state })
 			},
 		},
 		toggle_record: {
 			name: 'Recording: start / stop',
 			options: [stateOption('Start recording', 'Stop recording')],
 			callback: async (event) => {
-				send('toggle_record', { state: event.options.state })
+				await send('toggle_record', { state: event.options.state })
 			},
 		},
 		leave_meeting: {
 			name: 'Leave meeting',
 			options: [],
 			callback: async () => {
-				send('leave_meeting')
+				await send('leave_meeting')
 			},
 		},
 		bring_to_front: {
 			name: 'Bring call app to front',
 			options: [],
 			callback: async () => {
-				send('bring-to-front')
+				await send('bring-to-front')
 			},
 		},
 		custom_action: {
@@ -94,7 +97,7 @@ export function UpdateActions(self) {
 					self.log('warn', 'Custom action triggered without a name')
 					return
 				}
-				send('custom-action', { name })
+				await send('custom-action', { name })
 			},
 		},
 		refresh_custom_actions: {
@@ -103,6 +106,17 @@ export function UpdateActions(self) {
 			description: 'Re-fetch the list of custom actions from MuteDeck.',
 			callback: async () => {
 				self.connection?.requestCustomActions()
+			},
+		},
+		reset_pairing: {
+			name: 'Reset MuteDeck approval',
+			options: [],
+			description:
+				'Forget the token MuteDeck issued to this connection and ask MuteDeck for approval again (shows the prompt in MuteDeck).',
+			callback: async () => {
+				if (!self.connection) return
+				self.log('info', 'Resetting the MuteDeck approval')
+				await self.connection.resetPairing()
 			},
 		},
 	})

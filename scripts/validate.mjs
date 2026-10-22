@@ -36,12 +36,22 @@ ok(
 
 // --- Mock instance capturing definitions and outgoing MuteDeck actions ---
 const sent = []
+let resets = 0
 const self = {
-	state: { connected: true, ...emptyStatus() },
+	state: { connected: true, auth: 'authenticated', ...emptyStatus() },
 	customActions: [{ name: 'My Macro', app_types: ['zoom', 'teams'] }],
 	config: { host: 'localhost', port: '3492' },
 	log: () => {},
-	connection: { sendAction: (action, extra) => sent.push({ action, ...extra }), requestCustomActions: () => {} },
+	connection: {
+		sendAction: async (action, extra) => {
+			sent.push({ action, ...extra })
+			return true
+		},
+		requestCustomActions: () => {},
+		resetPairing: async () => {
+			resets++
+		},
+	},
 }
 self.updateActions = () => UpdateActions(self)
 
@@ -73,6 +83,7 @@ const expectedActions = [
 	'bring_to_front',
 	'custom_action',
 	'refresh_custom_actions',
+	'reset_pairing',
 ]
 for (const id of expectedActions) ok(actions[id], `action defined: ${id}`)
 for (const [id, def] of Object.entries(actions)) {
@@ -87,6 +98,8 @@ await actions.toggle_video.callback({ options: { state: 'toggle' } })
 await actions.leave_meeting.callback({ options: {} })
 await actions.bring_to_front.callback({ options: {} })
 await actions.custom_action.callback({ options: { name: 'My Macro' } })
+await actions.reset_pairing.callback({ options: {} })
+ok(resets === 1, 'reset_pairing resets the MuteDeck approval')
 ok(
 	sent.some((m) => m.action === 'toggle_mute' && m.state === 'on'),
 	'toggle_mute sends state',
@@ -108,6 +121,7 @@ const expectedFeedbacks = [
 	'recording_status',
 	'call_status',
 	'mutedeck_connected',
+	'mutedeck_auth_state',
 ]
 const expectedIconFeedbacks = ['mic_icon', 'camera_icon', 'share_icon', 'record_icon']
 for (const id of expectedFeedbacks) ok(feedbacks[id], `feedback defined: ${id}`)
@@ -122,6 +136,14 @@ for (const [id, def] of Object.entries(feedbacks)) {
 }
 ok(feedbacks.mic_status.callback({ options: { which: 'active' } }) === true, 'mic_status true when muted')
 ok(feedbacks.mutedeck_connected.callback({ options: {} }) === true, 'mutedeck_connected true when connected')
+ok(
+	feedbacks.mutedeck_auth_state.callback({ options: { which: 'authenticated' } }) === true,
+	'mutedeck_auth_state matches the current state',
+)
+ok(
+	feedbacks.mutedeck_auth_state.callback({ options: { which: 'pending' } }) === false,
+	'mutedeck_auth_state false for another state',
+)
 
 // Icon feedbacks must return a png64 + bgcolor for every state, and grey out when disconnected.
 for (const id of expectedIconFeedbacks) {
@@ -148,6 +170,8 @@ self.state.video = 'active'
 const declaredVarIds = new Set(Object.keys(variableDefs))
 for (const id of Object.keys(variableVals)) ok(declaredVarIds.has(id), `variable value ${id} has a matching definition`)
 ok(variableVals.mute_label === 'Muted', 'mute_label reflects active state')
+ok(variableVals.auth_state === 'authenticated', 'auth_state reflects the SDK state')
+ok(variableVals.auth_state_label === 'Approved', 'auth_state_label is a friendly label')
 
 // --- Presets ---
 const presetIds = new Set(Object.keys(presetMap))
@@ -178,6 +202,12 @@ ok(
 	'config fields have width',
 )
 ok(typeof MuteDeckInstance === 'function', 'main default export is a class/function')
+{
+	const ids = GetConfigFields().map((f) => f.id)
+	ok(ids.includes('host') && ids.includes('port'), 'config keeps host and port')
+	const token = GetConfigFields().find((f) => f.id === 'mutedeck_token')
+	ok(token?.type === 'secret-text', 'token is stored as a secret')
+}
 ok(Array.isArray(UpgradeScripts), 'UpgradeScripts is an array')
 
 if (failures === 0) {

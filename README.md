@@ -8,11 +8,16 @@ See [`companion/HELP.md`](companion/HELP.md) for full usage, actions, feedbacks,
 
 ## How it works
 
-MuteDeck exposes a local WebSocket API (default `ws://localhost:3492`). This module connects to it, sends action messages, and listens for `update-status` messages to drive feedbacks and variables. The MuteDeck desktop app must be installed and running.
+MuteDeck exposes a local WebSocket API (default `ws://localhost:3492`). This module connects to it through the MuteDeck plugin SDK (`@mutedeck/plugin-client`, `MuteDeckClient`), sends action messages, and listens for `update-status` pushes to drive feedbacks and variables. The MuteDeck desktop app must be installed and running.
+
+- **MuteDeck with plugin protocol v2**: the module connects to `/v2` and MuteDeck asks the user to allow "Bitfocus Companion". The token MuteDeck issues is kept in Companion's secrets store (hidden config field `mutedeck_token`), next to a per-connection instance id (hidden config field `mutedeck_instance_id`). A revoked token is discarded and approval is asked again.
+- **Older MuteDeck**: the SDK gets no `welcome` within 3 seconds and falls back to protocol v1 (`identify` plus `source: "plugin"`).
 
 ## Development
 
 This module is built against `@companion-module/base` 2.x and requires Companion 4.3 or newer. It is plain ESM JavaScript — no build step required.
+
+The SDK comes from npm (`"@mutedeck/plugin-client": "^1.0.2"`), so the Bitfocus module checks can resolve it.
 
 ```sh
 yarn install        # yarn 4 via corepack
@@ -29,7 +34,7 @@ To load it as a developer module, point Companion's _Developer modules path_ (la
 | `companion/manifest.json` | Module metadata for Companion.                           |
 | `companion/HELP.md`       | In-app help shown to users.                              |
 | `src/main.js`             | Instance class (entrypoint) and MuteDeck event handling. |
-| `src/api.js`              | WebSocket connection + reconnection to MuteDeck.         |
+| `src/api.js`              | MuteDeck connection via the MuteDeck plugin SDK.         |
 | `src/actions.js`          | Action definitions.                                      |
 | `src/feedbacks.js`        | Live icon + boolean feedback definitions.                |
 | `src/icons.js`            | Generated MuteDeck button icons (base64 PNGs).           |

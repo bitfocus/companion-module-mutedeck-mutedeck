@@ -276,6 +276,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mutedeck/plugin-client@npm:^1.0.2":
+  version: 1.0.2
+  resolution: "@mutedeck/plugin-client@npm:1.0.2"
+  checksum: 10c0/c784c9bd5fe741592603f206565b1cdf17b2471511d8c1e48b22e337fa60e8d3818d4ffa5cf0ac3eb3b706f59147ac1fe29ecca7f97d97939dc37e7b6f892ff1
+  languageName: node
+  linkType: hard
+
 "@pkgr/core@npm:^0.3.6":
   version: 0.3.6
   resolution: "@pkgr/core@npm:0.3.6"
@@ -568,6 +575,7 @@ __metadata:
   dependencies:
     "@companion-module/base": "npm:~2.0.4"
     "@companion-module/tools": "npm:^3.1.0"
+    "@mutedeck/plugin-client": "npm:^1.0.2"
     prettier: "npm:^3.8.3"
     ws: "npm:^8.18.2"
   languageName: unknown

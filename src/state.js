@@ -47,3 +47,13 @@ export function callLabel(v) {
 	if (v === StateValue.DISABLED) return 'Disabled'
 	return 'Unknown'
 }
+
+/** Labels for the MuteDeck SDK's connection states (the `auth_state_label` variable). */
+export const AUTH_STATE_LABELS = {
+	connecting: 'Connecting',
+	pending: 'Waiting for approval',
+	authenticated: 'Approved',
+	denied: 'Denied',
+	v1: 'Legacy (no approval needed)',
+	disconnected: 'Offline',
+}
