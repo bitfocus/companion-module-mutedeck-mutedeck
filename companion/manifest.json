@@ -5,7 +5,7 @@
 	"name": "MuteDeck",
 	"shortname": "MuteDeck",
 	"description": "Never wonder if you're muted again. Live mute, camera, screen share, recording and call status on your Companion buttons, with one-press controls, push-to-talk and custom actions for Zoom, Microsoft Teams, Webex, Google Meet, Discord and more.",
-	"version": "1.0.1",
+	"version": "2.0.0",
 	"license": "MIT",
 	"repository": "git+https://github.com/bitfocus/companion-module-mutedeck-mutedeck.git",
 	"bugs": "https://github.com/bitfocus/companion-module-mutedeck-mutedeck/issues",
@@ -23,7 +23,9 @@
 	},
 	"legacyIds": [],
 	"manufacturer": "MuteDeck",
-	"products": ["MuteDeck"],
+	"products": [
+		"MuteDeck"
+	],
 	"keywords": [
 		"mute",
 		"unmute",
