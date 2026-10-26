@@ -9,6 +9,7 @@ const RED = combineRgb(200, 0, 0)
 const GREEN = combineRgb(0, 150, 60)
 const GREY = combineRgb(80, 80, 80)
 const DARK = combineRgb(30, 30, 30)
+const BLUE = combineRgb(45, 140, 255)
 
 /**
  * Build a boolean feedback that is true when a given status field equals the
@@ -76,7 +77,7 @@ export function UpdateFeedbacks(self) {
 			'Microphone: live icon',
 			{
 				[StateValue.ACTIVE]: { png64: Icons.mic_muted, bgcolor: RED },
-				[StateValue.INACTIVE]: { png64: Icons.mic_unmuted, bgcolor: BLACK },
+				[StateValue.INACTIVE]: { png64: Icons.mic_unmuted, bgcolor: GREEN },
 				[StateValue.DISABLED]: { png64: Icons.mic_disabled, bgcolor: BLACK },
 			},
 			Icons.mic_disabled,
@@ -87,7 +88,7 @@ export function UpdateFeedbacks(self) {
 			'Camera: live icon',
 			{
 				[StateValue.ACTIVE]: { png64: Icons.video_on, bgcolor: GREEN },
-				[StateValue.INACTIVE]: { png64: Icons.video_off, bgcolor: BLACK },
+				[StateValue.INACTIVE]: { png64: Icons.video_off, bgcolor: RED },
 				[StateValue.DISABLED]: { png64: Icons.video_disabled, bgcolor: BLACK },
 			},
 			Icons.video_disabled,
@@ -97,8 +98,8 @@ export function UpdateFeedbacks(self) {
 			'share',
 			'Screen share: live icon',
 			{
-				[StateValue.ACTIVE]: { png64: Icons.share_on, bgcolor: GREEN },
-				[StateValue.INACTIVE]: { png64: Icons.share_off, bgcolor: BLACK },
+				[StateValue.ACTIVE]: { png64: Icons.share_on, bgcolor: RED },
+				[StateValue.INACTIVE]: { png64: Icons.share_off, bgcolor: BLUE },
 				[StateValue.DISABLED]: { png64: Icons.share_disabled, bgcolor: BLACK },
 			},
 			Icons.share_disabled,
@@ -109,7 +110,7 @@ export function UpdateFeedbacks(self) {
 			'Recording: live icon',
 			{
 				[StateValue.ACTIVE]: { png64: Icons.record_on, bgcolor: RED },
-				[StateValue.INACTIVE]: { png64: Icons.record_off, bgcolor: BLACK },
+				[StateValue.INACTIVE]: { png64: Icons.record_off, bgcolor: BLUE },
 				[StateValue.DISABLED]: { png64: Icons.record_disabled, bgcolor: BLACK },
 			},
 			Icons.record_disabled,
